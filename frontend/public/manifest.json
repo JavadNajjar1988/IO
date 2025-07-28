@@ -1,0 +1,30 @@
+{
+  "name": "سامانه ثبت ورود و خروج کارمندان",
+  "short_name": "ورود و خروج",
+  "description": "سامانه ثبت ورود و خروج کارمندان با قابلیت کار آفلاین",
+  "theme_color": "#4558BE",
+  "background_color": "#f7f9fc",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "icons/pwa-icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/pwa-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/pwa-icon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml"
+    }
+  ]
+} 
