@@ -6,4 +6,9 @@ from app.database import engine, Base
 Base.metadata.create_all(bind=engine)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",  # اجازه دسترسی از همه IP ها
+        port=8000,
+        reload=True
+    ) 

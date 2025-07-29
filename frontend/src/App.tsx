@@ -10,9 +10,7 @@ import {
   createTheme,
   Alert,
   Button,
-  useMediaQuery,
-  Fab,
-  Grid
+  Fab
 } from '@mui/material';
 import SyncIcon from '@mui/icons-material/Sync';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -21,6 +19,7 @@ import { db } from './db/database';
 import type { Employee } from './db/database';
 import { attendanceService } from './services/attendanceService';
 import { employeeService } from './services/employeeService';
+import { buildApiUrl, API_CONFIG } from './config/api';
 
 // تم مدرن با رنگ‌های جذاب
 const theme = createTheme({
@@ -177,22 +176,30 @@ const mockEmployees: Employee[] = [
 function App() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [networkStatus, setNetworkStatus] = useState(navigator.onLine);
+  const [serverStatus, setServerStatus] = useState<boolean | null>(null);
   const [syncStatus, setSyncStatus] = useState<{syncing: boolean, lastSync: Date | null}>({
     syncing: false,
     lastSync: null
   });
   
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isMobile = theme.breakpoints.down('sm');
   
   // بارگذاری کارمندان
   useEffect(() => {
     const loadEmployees = async () => {
       try {
+        // تست اتصال به سرور
+        await testServerConnection();
+        
         // تلاش برای دریافت کارمندان از سرور
         const serverEmployees = await employeeService.getEmployees();
         
         if (serverEmployees && serverEmployees.length > 0) {
           setEmployees(serverEmployees);
+          // به‌روزرسانی دیتابیس محلی با کارمندان سرور
+          for (const emp of serverEmployees) {
+            await db.employees.put(emp);
+          }
         } else {
           // اگر کارمندی در سرور نباشد یا ارتباط برقرار نباشد، از داده‌های محلی استفاده می‌کنیم
           const localEmployees = await db.getEmployees();
@@ -210,7 +217,7 @@ function App() {
       } catch (error) {
         console.error('خطا در بارگذاری کارمندان:', error);
         
-        // در صورت بروز خطا، از داده‌های نمونه استفاده می‌کنیم
+        // در صورت بروز خطا، از داده‌های محلی استفاده می‌کنیم
         const localEmployees = await db.getEmployees();
         if (localEmployees && localEmployees.length > 0) {
           setEmployees(localEmployees);
@@ -260,6 +267,36 @@ function App() {
     };
   }, []);
   
+  // همگام‌سازی کارمندان
+  const syncEmployees = async () => {
+    try {
+      const serverEmployees = await employeeService.getEmployees();
+      if (serverEmployees && serverEmployees.length > 0) {
+        setEmployees(serverEmployees);
+        // به‌روزرسانی دیتابیس محلی
+        for (const emp of serverEmployees) {
+          await db.employees.put(emp);
+        }
+      }
+    } catch (error) {
+      console.error('خطا در همگام‌سازی کارمندان:', error);
+    }
+  };
+
+  // تست اتصال به سرور
+  const testServerConnection = async () => {
+    try {
+      const response = await fetch(buildApiUrl(API_CONFIG.ENDPOINTS.EMPLOYEES));
+      const isConnected = response.ok;
+      setServerStatus(isConnected);
+      return isConnected;
+    } catch (error) {
+      console.error('خطا در اتصال به سرور:', error);
+      setServerStatus(false);
+      return false;
+    }
+  };
+
   // همگام‌سازی رکوردهای ثبت‌نشده
   const syncAttendanceRecords = async () => {
     if (!navigator.onLine) {
@@ -269,7 +306,11 @@ function App() {
     setSyncStatus({...syncStatus, syncing: true});
     
     try {
+      // همگام‌سازی رکوردها
       const result = await attendanceService.syncAll();
+      
+      // همگام‌سازی کارمندان
+      await syncEmployees();
       
       if (result.success) {
         setSyncStatus({
@@ -284,9 +325,21 @@ function App() {
     }
   };
 
-  // تقسیم کارمندان به دو ردیف (۳ تا بالا و ۴ تا پایین)
-  const firstRowEmployees = employees.slice(0, 3);
-  const secondRowEmployees = employees.slice(3, 7);
+  // آرایه رنگ‌های رندوم با تم رنگی فعلی
+  const cardColors = [
+    'rgba(69, 88, 190, 0.08)',   // آبی سیر
+    'rgba(245, 0, 87, 0.08)',    // صورتی
+    'rgba(0, 191, 165, 0.08)',   // سبز فیروزه‌ای
+    'rgba(255, 61, 0, 0.08)',    // نارنجی قرمز
+    'rgba(255, 171, 0, 0.08)',   // زرد کهربایی
+    'rgba(33, 150, 243, 0.08)',  // آبی روشن
+    'rgba(156, 39, 176, 0.08)',  // بنفش
+  ];
+
+  // تابع برای انتخاب رنگ رندوم
+  const getRandomColor = (index: number) => {
+    return cardColors[index % cardColors.length];
+  };
 
   return (
     <ThemeProvider theme={theme}>
@@ -395,6 +448,23 @@ function App() {
             </Alert>
           )}
           
+          {serverStatus === false && (
+            <Alert 
+              severity="error" 
+              variant="filled"
+              sx={{ 
+                mb: 3, 
+                direction: 'rtl',
+                borderRadius: 2,
+                width: '100%',
+                maxWidth: 1200,
+                boxShadow: '0 4px 12px rgba(255, 61, 0, 0.2)'
+              }}
+            >
+              اتصال به سرور برقرار نیست. رکوردها در دستگاه شما ذخیره شده و پس از اتصال مجدد همگام‌سازی خواهند شد.
+            </Alert>
+          )}
+          
           <Box sx={{ 
             textAlign: 'center', 
             mb: 4, 
@@ -423,9 +493,9 @@ function App() {
           </Box>
           
           <Container maxWidth="lg" sx={{ width: '100%' }}>
-            {/* ردیف اول - 3 کارت */}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', mb: 4 }}>
-              {firstRowEmployees.map((employee) => (
+            {/* همه کارت‌ها در یک ردیف */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {employees.map((employee, index) => (
                 <Box 
                   key={employee.id}
                   sx={{ 
@@ -437,27 +507,7 @@ function App() {
                   <AttendanceCard
                     employee={employee}
                     onRecordComplete={syncAttendanceRecords}
-                    backgroundClass="primary"
-                  />
-                </Box>
-              ))}
-            </Box>
-            
-            {/* ردیف دوم - 4 کارت */}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>
-              {secondRowEmployees.map((employee) => (
-                <Box 
-                  key={employee.id}
-                  sx={{ 
-                    width: { xs: '100%', sm: '47%', md: '22%' },
-                    mx: { xs: 0, sm: 1, md: 1.5 },
-                    mb: 3
-                  }}
-                >
-                  <AttendanceCard
-                    employee={employee}
-                    onRecordComplete={syncAttendanceRecords}
-                    backgroundClass="secondary"
+                    backgroundColor={getRandomColor(index)}
                   />
                 </Box>
               ))}

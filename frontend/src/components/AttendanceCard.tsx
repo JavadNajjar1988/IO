@@ -25,10 +25,10 @@ import { attendanceService } from '../services/attendanceService';
 interface AttendanceCardProps {
   employee: Employee;
   onRecordComplete?: () => void;
-  backgroundClass?: 'primary' | 'secondary';
+  backgroundColor?: string;
 }
 
-export default function AttendanceCard({ employee, onRecordComplete, backgroundClass = 'primary' }: AttendanceCardProps) {
+export default function AttendanceCard({ employee, onRecordComplete, backgroundColor = 'rgba(69, 88, 190, 0.08)' }: AttendanceCardProps) {
   const [loading, setLoading] = useState<'ورود' | 'خروج' | null>(null);
   const [lastAction, setLastAction] = useState<'ورود' | 'خروج' | null>(null);
   const [snackbar, setSnackbar] = useState<{open: boolean; message: string; type: 'success' | 'error'}>({
@@ -96,9 +96,7 @@ export default function AttendanceCard({ employee, onRecordComplete, backgroundC
   
   // محاسبه رنگ پس‌زمینه بر اساس نوع کارت
   const getBackgroundColor = () => {
-    return backgroundClass === 'primary' 
-      ? 'rgba(10, 186, 181, 0.08)' // رنگ شیشه‌ای فیروزه‌ای برای کارت‌های بالا
-      : 'rgba(242, 192, 120, 0.12)'; // رنگ شیشه‌ای نارنجی برای کارت‌های پایین
+    return backgroundColor;
   };
   
   return (
@@ -111,13 +109,13 @@ export default function AttendanceCard({ employee, onRecordComplete, backgroundC
         overflow: 'visible',
         transition: 'transform 0.3s, box-shadow 0.3s',
         border: '1px solid',
-        borderColor: backgroundClass === 'primary' ? 'rgba(10, 186, 181, 0.15)' : 'rgba(242, 192, 120, 0.2)',
+        borderColor: backgroundColor,
         boxShadow: '0 10px 40px rgba(0, 0, 0, 0.03)',
         position: 'relative',
         '&:hover': {
           transform: 'translateY(-8px)',
-          boxShadow: backgroundClass === 'primary' 
-            ? '0 20px 40px rgba(10, 186, 181, 0.15)' 
+          boxShadow: backgroundColor 
+            ? '0 20px 40px rgba(0, 0, 0, 0.03)' 
             : '0 20px 40px rgba(242, 192, 120, 0.15)',
         }
       }}
@@ -182,7 +180,7 @@ export default function AttendanceCard({ employee, onRecordComplete, backgroundC
               sx={{ 
                 display: 'flex', 
                 alignItems: 'center',
-                backgroundColor: alpha(backgroundClass === 'primary' ? '#0ABAB5' : '#F2C078', 0.1),
+                backgroundColor: alpha(backgroundColor, 0.1),
                 px: 1.5,
                 py: 0.5,
                 borderRadius: 10,
@@ -213,7 +211,7 @@ export default function AttendanceCard({ employee, onRecordComplete, backgroundC
           alignItems: 'center', 
           mb: 3,
           color: 'text.secondary',
-          bgcolor: alpha(backgroundClass === 'primary' ? '#0ABAB5' : '#F2C078', 0.07),
+          bgcolor: alpha(backgroundColor, 0.07),
           borderRadius: 2,
           p: 1,
           fontSize: '0.85rem'

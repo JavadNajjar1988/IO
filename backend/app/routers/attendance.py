@@ -9,6 +9,10 @@ from typing import List
 
 router = APIRouter()
 
+@router.get("/test-attendance")
+async def test_attendance():
+    return {"message": "endpoint attendance کار می‌کند", "status": "ok"}
+
 @router.post("/attendance/", response_model=AttendanceResponse)
 async def record_attendance(
     attendance: AttendanceRecordCreate,
@@ -133,3 +137,22 @@ async def update_employee(
     db.refresh(db_employee)
     
     return db_employee 
+
+@router.delete("/employees/{employee_id}")
+async def delete_employee(employee_id: int, db: Session = Depends(get_db)):
+    # بررسی وجود کارمند
+    db_employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not db_employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="کارمند با این شناسه یافت نشد"
+        )
+    
+    # حذف رکوردهای حضور و غیاب مربوط به این کارمند
+    db.query(AttendanceRecord).filter(AttendanceRecord.employee_id == employee_id).delete()
+    
+    # حذف کارمند
+    db.delete(db_employee)
+    db.commit()
+    
+    return {"message": "کارمند با موفقیت حذف شد"} 

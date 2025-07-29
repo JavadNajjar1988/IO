@@ -108,9 +108,14 @@ export default function AdminPage() {
   const [employeeDialog, setEmployeeDialog] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [filterDate, setFilterDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [alertMessage, setAlertMessage] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  const [alertMessage, setAlertMessage] = useState<{type: 'success' | 'error' | 'info' | 'warning', message: string} | null>(null);
   const [notifications, setNotifications] = useState<ActivityNotification[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, employeeId: number | null, employeeName: string}>({
+    open: false,
+    employeeId: null,
+    employeeName: ''
+  });
   
   // بررسی وضعیت ورود مدیر
   useEffect(() => {
@@ -152,29 +157,122 @@ export default function AdminPage() {
       }
     };
     
-    window.addEventListener(ATTENDANCE_EVENT, handleAttendanceEvent as EventListener);
+    window.addEventListener(ATTENDANCE_EVENT, handleAttendanceEvent as unknown as EventListener);
     
     return () => {
       clearInterval(intervalId);
-      window.removeEventListener(ATTENDANCE_EVENT, handleAttendanceEvent as EventListener);
+      window.removeEventListener(ATTENDANCE_EVENT, handleAttendanceEvent as unknown as EventListener);
     };
   }, [employees]);
   
   // بارگذاری داده‌ها از دیتابیس
   const loadData = async () => {
     try {
-      // بارگذاری کارمندان
-      const dbEmployees = await db.employees.toArray();
-      setEmployees(dbEmployees);
+      console.log('شروع بارگذاری داده‌ها...');
+      
+      // ابتدا تلاش برای بارگذاری از سرور
+      let serverEmployees: Employee[] = [];
+      try {
+        serverEmployees = await employeeService.getEmployees();
+        console.log('تلاش برای دریافت از سرور انجام شد');
+      } catch (serverError) {
+        console.log('خطا در اتصال به سرور:', serverError);
+      }
+      
+      if (serverEmployees && serverEmployees.length > 0) {
+        console.log(`${serverEmployees.length} کارمند از سرور بارگذاری شد`);
+        setEmployees(serverEmployees);
+        setAlertMessage(null); // پاک کردن پیام‌های خطای قبلی
+      } else {
+        // اگر سرور در دسترس نباشد یا کارمندی نداشته باشد، از دیتابیس محلی استفاده می‌کنیم
+        const dbEmployees = await db.employees.toArray();
+        
+        if (dbEmployees && dbEmployees.length > 0) {
+          console.log(`${dbEmployees.length} کارمند از دیتابیس محلی بارگذاری شد`);
+          setEmployees(dbEmployees);
+          setAlertMessage({
+            type: 'info',
+            message: 'کارمندان از دیتابیس محلی بارگذاری شدند. برای دریافت آخرین تغییرات، دکمه بروزرسانی را بزنید.'
+          });
+        } else {
+          console.log('هیچ کارمندی در سرور یا دیتابیس محلی یافت نشد');
+          setEmployees([]);
+          
+          // نمایش پیام به کاربر
+          setAlertMessage({
+            type: 'warning',
+            message: 'هیچ کارمندی یافت نشد. لطفاً ابتدا کارمندان را اضافه کنید یا دکمه بروزرسانی را بزنید.'
+          });
+        }
+      }
       
       // بارگذاری رکوردها
       const dbRecords = await db.attendanceRecords.toArray();
       setRecords(dbRecords);
+      
     } catch (error) {
       console.error('خطا در بارگذاری داده‌ها:', error);
       setAlertMessage({
         type: 'error',
-        message: 'خطا در بارگذاری داده‌ها. لطفاً صفحه را رفرش کنید.'
+        message: 'خطا در بارگذاری داده‌ها. لطفاً صفحه را رفرش کنید یا دکمه بروزرسانی را بزنید.'
+      });
+    }
+  };
+
+  // همگام‌سازی کامل داده‌ها با سرور
+  const syncData = async () => {
+    try {
+      console.log('شروع همگام‌سازی داده‌ها...');
+      setAlertMessage({
+        type: 'info',
+        message: 'در حال بروزرسانی داده‌ها از سرور...'
+      });
+      
+      // همگام‌سازی کارمندان
+      const serverEmployees = await employeeService.getEmployees();
+      if (serverEmployees && serverEmployees.length > 0) {
+        setEmployees(serverEmployees);
+        console.log(`${serverEmployees.length} کارمند از سرور بارگذاری شد`);
+      } else {
+        console.log('هیچ کارمندی در سرور یافت نشد');
+        setAlertMessage({
+          type: 'warning',
+          message: 'هیچ کارمندی در سرور یافت نشد. لطفاً ابتدا کارمندان را در سرور اضافه کنید.'
+        });
+        return;
+      }
+      
+      // همگام‌سازی رکوردهای حضور و غیاب
+      const syncResult = await attendanceService.syncAll();
+      if (syncResult.success) {
+        console.log('رکوردهای حضور و غیاب همگام‌سازی شدند');
+      }
+      
+      // همگام‌سازی عملیات‌های آفلاین کارمندان
+      const offlineSyncResult = await employeeService.syncOfflineOperations();
+      if (offlineSyncResult.success) {
+        console.log(`عملیات آفلاین همگام‌سازی شد: ${offlineSyncResult.message}`);
+      }
+      
+      // بارگذاری مجدد رکوردها از دیتابیس محلی
+      const dbRecords = await db.attendanceRecords.toArray();
+      setRecords(dbRecords);
+      
+      // بارگذاری مجدد کارمندان برای نمایش تغییرات
+      const updatedEmployees = await employeeService.getEmployees();
+      setEmployees(updatedEmployees);
+      
+      setAlertMessage({
+        type: 'success',
+        message: `داده‌ها با موفقیت بروزرسانی شدند. ${updatedEmployees.length} کارمند بارگذاری شد. ${offlineSyncResult.syncedCount > 0 ? `و ${offlineSyncResult.syncedCount} عملیات آفلاین همگام‌سازی شد.` : ''}`
+      });
+      
+      console.log('همگام‌سازی کامل شد');
+    } catch (error) {
+      console.error('خطا در همگام‌سازی داده‌ها:', error);
+      setAlertMessage({
+        type: 'error',
+        message: 'خطا در بروزرسانی داده‌ها. لطفاً اتصال اینترنت را بررسی کنید و مجدداً تلاش کنید.'
       });
     }
   };
@@ -229,7 +327,7 @@ export default function AdminPage() {
   };
   
   // تغییر تب
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
   
@@ -274,13 +372,20 @@ export default function AdminPage() {
           });
         }
       } else {
-        // افزودن کارمند جدید به دیتابیس محلی
-        // در نسخه‌های بعدی می‌توان این بخش را نیز به سرویس منتقل کرد
-        await db.employees.add(currentEmployee);
-        setAlertMessage({
-          type: 'success',
-          message: 'کارمند جدید با موفقیت اضافه شد.'
-        });
+        // افزودن کارمند جدید با استفاده از سرویس
+        const result = await employeeService.createEmployee(currentEmployee);
+        
+        if (result.success) {
+          setAlertMessage({
+            type: 'success',
+            message: result.message
+          });
+        } else {
+          setAlertMessage({
+            type: 'error',
+            message: result.message
+          });
+        }
       }
       
       // بارگذاری مجدد کارمندان
@@ -300,22 +405,70 @@ export default function AdminPage() {
   // حذف کارمند
   const handleDeleteEmployee = async (employeeId: number) => {
     try {
-      // حذف کارمند
-      await db.employees.delete(employeeId);
+      console.log('در حال حذف کارمند با شناسه:', employeeId);
       
-      setAlertMessage({
-        type: 'success',
-        message: 'کارمند با موفقیت حذف شد.'
-      });
+      // حذف کارمند با استفاده از سرویس
+      const result = await employeeService.deleteEmployee(employeeId);
       
-      // بارگذاری مجدد کارمندان
-      loadData();
+      if (result.success) {
+        setAlertMessage({
+          type: 'success',
+          message: result.message
+        });
+        
+        // بارگذاری مجدد کارمندان
+        await loadData();
+      } else {
+        setAlertMessage({
+          type: 'error',
+          message: result.message
+        });
+      }
     } catch (error) {
       console.error('خطا در حذف کارمند:', error);
       setAlertMessage({
         type: 'error',
         message: 'خطا در حذف کارمند. لطفاً مجدداً تلاش کنید.'
       });
+    }
+  };
+  
+  // باز کردن دیالوگ تاییدیه حذف
+  const handleOpenDeleteDialog = (employeeId: number, employeeName: string) => {
+    setDeleteConfirmDialog({
+      open: true,
+      employeeId,
+      employeeName
+    });
+  };
+  
+  // بستن دیالوگ تاییدیه حذف
+  const handleCloseDeleteDialog = () => {
+    setDeleteConfirmDialog({
+      open: false,
+      employeeId: null,
+      employeeName: ''
+    });
+  };
+  
+  // تایید حذف کارمند
+  const handleConfirmDelete = async () => {
+    if (deleteConfirmDialog.employeeId) {
+      console.log('شروع فرآیند حذف کارمند:', deleteConfirmDialog.employeeId);
+      
+      // تست اتصال به سرور قبل از حذف
+      const connectionTest = await employeeService.testConnection();
+      console.log('نتیجه تست اتصال:', connectionTest);
+      
+      if (!connectionTest.success) {
+        setAlertMessage({
+          type: 'warning',
+          message: 'اتصال به سرور برقرار نیست. کارمند فقط از دیتابیس محلی حذف خواهد شد.'
+        });
+      }
+      
+      await handleDeleteEmployee(deleteConfirmDialog.employeeId);
+      handleCloseDeleteDialog();
     }
   };
   
@@ -346,13 +499,6 @@ export default function AdminPage() {
     return { present, absent };
   };
   
-  // تغییر قالب تب‌ها برای تطبیق با دستگاه‌های موبایل
-  isMobile && { 
-    padding: '10px 12px', 
-    minWidth: 'auto',
-    fontSize: '0.85rem'
-  };
-  
   // کارت‌های آمار
   const dailyStatus = calculateDailyStatus();
   
@@ -378,7 +524,7 @@ export default function AdminPage() {
             <Button 
               variant="contained" 
               color="secondary" 
-              onClick={() => loadData()}
+              onClick={() => syncData()}
               startIcon={<RefreshIcon />}
               sx={{ 
                 borderRadius: 20, 
@@ -388,6 +534,50 @@ export default function AdminPage() {
               }}
             >
               بروزرسانی
+            </Button>
+            
+            <Button 
+              variant="outlined" 
+              color="info" 
+              onClick={async () => {
+                const result = await employeeService.testConnection();
+                setAlertMessage({
+                  type: result.success ? 'success' : 'error',
+                  message: result.message
+                });
+              }}
+              sx={{ 
+                borderRadius: 20, 
+                '& .MuiButton-startIcon': {
+                  marginRight: 1
+                }
+              }}
+            >
+              تست اتصال
+            </Button>
+            
+            <Button 
+              variant="outlined" 
+              color="warning" 
+              onClick={async () => {
+                const result = await employeeService.syncOfflineOperations();
+                setAlertMessage({
+                  type: result.success ? 'success' : 'warning',
+                  message: result.message
+                });
+                if (result.success) {
+                  // بارگذاری مجدد کارمندان
+                  await loadData();
+                }
+              }}
+              sx={{ 
+                borderRadius: 20, 
+                '& .MuiButton-startIcon': {
+                  marginRight: 1
+                }
+              }}
+            >
+              همگام‌سازی آفلاین
             </Button>
             
             <Button
@@ -526,20 +716,34 @@ export default function AdminPage() {
                   لیست کارمندان
                 </Typography>
                 
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<AddIcon />}
-                  onClick={() => handleOpenEmployeeDialog()}
-                  sx={{ 
-                    borderRadius: 2,
-                    '& .MuiButton-startIcon': {
-                      marginRight: 1
-                    }
-                  }}
-                >
-                  افزودن کارمند جدید
-                </Button>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  {employees.length === 0 && (
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      startIcon={<RefreshIcon />}
+                      onClick={() => syncData()}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      بارگذاری از سرور
+                    </Button>
+                  )}
+                  
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<AddIcon />}
+                    onClick={() => handleOpenEmployeeDialog()}
+                    sx={{ 
+                      borderRadius: 2,
+                      '& .MuiButton-startIcon': {
+                        marginRight: 1
+                      }
+                    }}
+                  >
+                    افزودن کارمند جدید
+                  </Button>
+                </Box>
               </Box>
               
               <TableContainer>
@@ -558,7 +762,34 @@ export default function AdminPage() {
                     {employees.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} align="center">
-                          هیچ کارمندی یافت نشد.
+                          <Box sx={{ py: 4, textAlign: 'center' }}>
+                            <Typography variant="h6" color="text.secondary" gutterBottom>
+                              هیچ کارمندی یافت نشد
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              برای شروع، کارمندان را از سرور بارگذاری کنید یا کارمند جدیدی اضافه کنید
+                            </Typography>
+                            <Stack direction="row" spacing={2} justifyContent="center">
+                              <Button
+                                variant="outlined"
+                                color="primary"
+                                startIcon={<RefreshIcon />}
+                                onClick={() => syncData()}
+                                sx={{ borderRadius: 2 }}
+                              >
+                                بارگذاری از سرور
+                              </Button>
+                              <Button
+                                variant="contained"
+                                color="primary"
+                                startIcon={<AddIcon />}
+                                onClick={() => handleOpenEmployeeDialog()}
+                                sx={{ borderRadius: 2 }}
+                              >
+                                افزودن کارمند جدید
+                              </Button>
+                            </Stack>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -582,13 +813,24 @@ export default function AdminPage() {
                                 color="primary" 
                                 size="small"
                                 onClick={() => handleOpenEmployeeDialog(employee)}
+                                title="ویرایش کارمند"
                               >
                                 <EditIcon fontSize="small" />
                               </IconButton>
                               <IconButton 
                                 color="error" 
                                 size="small"
-                                onClick={() => employee.id && handleDeleteEmployee(employee.id)}
+                                onClick={() => {
+                                  if (employee.id) {
+                                    handleOpenDeleteDialog(employee.id, employee.name);
+                                  } else {
+                                    setAlertMessage({
+                                      type: 'error',
+                                      message: 'شناسه کارمند نامعتبر است'
+                                    });
+                                  }
+                                }}
+                                title="حذف کارمند"
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
@@ -654,7 +896,23 @@ export default function AdminPage() {
                     {employees.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} align="center">
-                          هیچ کارمندی یافت نشد.
+                          <Box sx={{ py: 4, textAlign: 'center' }}>
+                            <Typography variant="h6" color="text.secondary" gutterBottom>
+                              هیچ کارمندی یافت نشد
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              برای مشاهده گزارش حضور و غیاب، ابتدا کارمندان را بارگذاری کنید
+                            </Typography>
+                            <Button
+                              variant="outlined"
+                              color="primary"
+                              startIcon={<RefreshIcon />}
+                              onClick={() => syncData()}
+                              sx={{ borderRadius: 2 }}
+                            >
+                              بارگذاری از سرور
+                            </Button>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -691,7 +949,7 @@ export default function AdminPage() {
                         
                         // محاسبه ساعات کارکرد
                         let workHours = '0:00';
-                        if (hasEntry && hasExit) {
+                        if (hasEntry && hasExit && firstEntry && lastExit) {
                           const entryTime = new Date(firstEntry);
                           const exitTime = new Date(lastExit);
                           const diffMs = exitTime.getTime() - entryTime.getTime();
@@ -878,6 +1136,30 @@ export default function AdminPage() {
             <Button type="submit" variant="contained" color="primary">ذخیره</Button>
           </DialogActions>
         </form>
+      </Dialog>
+      
+      {/* دیالوگ تاییدیه حذف کارمند */}
+      <Dialog
+        open={deleteConfirmDialog.open}
+        onClose={handleCloseDeleteDialog}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle id="delete-dialog-title" sx={{ fontWeight: 'bold' }}>
+          تایید حذف کارمند
+        </DialogTitle>
+        <DialogContent>
+          <Typography id="delete-dialog-description">
+            آیا مطمئن هستید که می‌خواهید کارمند "{deleteConfirmDialog.employeeName}" را حذف کنید؟ این عملیات قابل بازگشت نیست.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={handleCloseDeleteDialog} color="inherit">انصراف</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">حذف</Button>
+        </DialogActions>
       </Dialog>
       
       {/* نوتیفیکیشن فعالیت کارمندان */}
